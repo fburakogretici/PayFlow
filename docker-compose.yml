@@ -1,0 +1,130 @@
+version: '3.8'
+
+services:
+  # 1. RabbitMQ Mesaj Kuyruğu (Management UI ile birlikte)
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: payflow-rabbitmq
+    ports:
+      - "5672:5672"     # AMQP Protokol portu
+      - "15672:15672"   # RabbitMQ Web Yönetim Paneli
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - payflow-network
+
+  # 2. Redis Dağıtık Önbellek (Yüksek okuma trafiği için)
+  redis:
+    image: redis:7-alpine
+    container_name: payflow-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - payflow-network
+
+  # 3. Catalog Mikroservisi
+  catalog-api:
+    build:
+      context: .
+      dockerfile: src/Services/Catalog/PayFlow.Catalog.API/Dockerfile
+    container_name: payflow-catalog-api
+    ports:
+      - "5001:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Redis=redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - payflow-network
+
+  # 4. Ordering Mikroservisi
+  ordering-api:
+    build:
+      context: .
+      dockerfile: src/Services/Ordering/PayFlow.Ordering.API/Dockerfile
+    container_name: payflow-ordering-api
+    ports:
+      - "5002:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=guest
+      - RabbitMQ__Password=guest
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - payflow-network
+
+  # 5. Payment Mikroservisi (SOAP Entegrasyonlu)
+  payment-api:
+    build:
+      context: .
+      dockerfile: src/Services/Payment/PayFlow.Payment.API/Dockerfile
+    container_name: payflow-payment-api
+    ports:
+      - "5003:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=guest
+      - RabbitMQ__Password=guest
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - payflow-network
+
+  # 6. Notification Worker Servisi
+  notification-worker:
+    build:
+      context: .
+      dockerfile: src/Services/Notification/PayFlow.Notification.Worker/Dockerfile
+    container_name: payflow-notification-worker
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=guest
+      - RabbitMQ__Password=guest
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - payflow-network
+
+  # 7. YARP API Gateway (Tek Giriş Kapısı)
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/ApiGateways/PayFlow.ApiGateway/Dockerfile
+    container_name: payflow-api-gateway
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ReverseProxy__Clusters__catalog-cluster__Destinations__destination1__Address=http://catalog-api:8080
+      - ReverseProxy__Clusters__order-cluster__Destinations__destination1__Address=http://ordering-api:8080
+      - ReverseProxy__Clusters__payment-cluster__Destinations__destination1__Address=http://payment-api:8080
+    depends_on:
+      - catalog-api
+      - ordering-api
+      - payment-api
+    networks:
+      - payflow-network
+
+networks:
+  payflow-network:
+    driver: bridge
