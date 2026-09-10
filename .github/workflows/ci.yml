@@ -1,0 +1,73 @@
+name: PayFlow Microservices CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    name: Build & Test Microservices
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET SDK 9.0
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Restore Dependencies
+      run: dotnet restore PayFlow.sln
+
+    - name: Build Solution
+      run: dotnet build PayFlow.sln --configuration Release --no-restore
+
+    - name: Run Unit & Integration Tests
+      run: dotnet test PayFlow.sln --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+
+    - name: Upload Test Coverage
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-coverage-report
+        path: "**/TestResults/**/*.xml"
+
+  docker-build:
+    name: Build & Validate Docker Containers
+    needs: build-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Catalog Service Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: src/Services/Catalog/PayFlow.Catalog.API/Dockerfile
+        push: false
+        tags: payflow/catalog-api:latest
+
+    - name: Build Ordering Service Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: src/Services/Ordering/PayFlow.Ordering.API/Dockerfile
+        push: false
+        tags: payflow/ordering-api:latest
+
+    - name: Build Payment Service Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: src/Services/Payment/PayFlow.Payment.API/Dockerfile
+        push: false
+        tags: payflow/payment-api:latest
