@@ -2,16 +2,38 @@ using Microsoft.EntityFrameworkCore;
 using PayFlow.Catalog.API.Data;
 using PayFlow.Catalog.API.Endpoints;
 using PayFlow.Catalog.API.Services;
+using PayFlow.SharedKernel.Logging;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Veritabanı (EF Core)
-builder.Services.AddDbContext<CatalogDbContext>(options =>
+// 1. Serilog & Seq Yapılandırması (Observability)
+builder.Host.UseSerilog((context, configuration) =>
 {
-    options.UseSqlite(builder.Configuration.GetConnectionString("CatalogDb") ?? "Data Source=catalog.db");
+    var seqUrl = context.Configuration["Seq:ServerUrl"] ?? "http://localhost:5341";
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .Enrich.FromLogContext()
+        .Enrich.WithProperty("Application", "PayFlow.Catalog.API")
+        .WriteTo.Console()
+        .WriteTo.Seq(seqUrl);
 });
 
-// 2. Redis Dağıtık Önbellekleme (Distributed Cache)
+// 2. Veritabanı Katmanı (PostgreSQL / SQLite Fallback)
+builder.Services.AddDbContext<CatalogDbContext>(options =>
+{
+    var conn = builder.Configuration.GetConnectionString("CatalogDb");
+    if (!string.IsNullOrEmpty(conn) && (conn.Contains("Host=") || conn.Contains("Server=") || conn.Contains("Port=")))
+    {
+        options.UseNpgsql(conn);
+    }
+    else
+    {
+        options.UseSqlite(conn ?? "Data Source=catalog.db");
+    }
+});
+
+// 3. Redis Dağıtık Önbellekleme (Distributed Cache)
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
@@ -20,18 +42,25 @@ builder.Services.AddStackExchangeRedisCache(options =>
 
 builder.Services.AddScoped<ICatalogCacheService, CatalogCacheService>();
 
-// 3. Health Checks (K8s Readiness/Liveness Probes için)
+// 4. Health Checks
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<CatalogDbContext>("CatalogDb");
 
-// 4. Swagger & API Explorer
+// 5. Swagger & API Explorer
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "PayFlow Catalog API", Version = "v1", Description = "Yüksek trafikli ürün kataloğu mikroservisi (Redis Cache-Aside destekli)" });
+    c.SwaggerDoc("v1", new()
+    {
+        Title = "PayFlow Catalog API",
+        Version = "v1",
+        Description = "PostgreSQL, Redis Cache-Aside ve Polly Resilience Pipeline kullanan Ürün Kataloğu Servisi"
+    });
 });
 
 var app = builder.Build();
+
+app.UseCorrelationId();
 
 // Otomatik DB oluşturma ve tohumlama (Seed)
 using (var scope = app.Services.CreateScope())
@@ -45,7 +74,7 @@ app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "Catalog API v1");
-    c.RoutePrefix = string.Empty; // Doğrudan root URL'de açılsın
+    c.RoutePrefix = string.Empty;
 });
 
 app.MapHealthChecks("/health");

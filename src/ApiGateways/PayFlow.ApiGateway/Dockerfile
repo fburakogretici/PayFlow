@@ -1,9 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /app
 
+COPY src/BuildingBlocks/PayFlow.SharedKernel/*.csproj src/BuildingBlocks/PayFlow.SharedKernel/
 COPY src/ApiGateways/PayFlow.ApiGateway/*.csproj src/ApiGateways/PayFlow.ApiGateway/
 RUN dotnet restore src/ApiGateways/PayFlow.ApiGateway/PayFlow.ApiGateway.csproj
 
+COPY src/BuildingBlocks/PayFlow.SharedKernel/ src/BuildingBlocks/PayFlow.SharedKernel/
 COPY src/ApiGateways/PayFlow.ApiGateway/ src/ApiGateways/PayFlow.ApiGateway/
 WORKDIR /app/src/ApiGateways/PayFlow.ApiGateway
 RUN dotnet publish -c Release -o /app/publish /p:UseAppHost=false

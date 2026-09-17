@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PayFlow: Enterprise .NET 9 Dağıtık Mikroservis & Ödeme Orkestrasyonu Platformu</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Navbar -->
+  <header class="navbar">
+    <div class="brand-wrapper">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>PayFlow Hub</h1>
+        <span class="brand-badge">.NET 9 Microservices</span>
+      </div>
+    </div>
+
+    <div class="nav-center">
+      <div class="status-indicator">
+        <span class="pulse-dot"></span>
+        <span id="gateway-status-text">Gateway Aktif (YARP :5000)</span>
+      </div>
+    </div>
+
+    <div class="nav-actions">
+      <a href="/swagger" target="_blank" class="btn-dev-link" title="Swagger API Dokümantasyonu">
+        <span>📄 Swagger</span>
+      </a>
+      <a href="http://localhost:5341" target="_blank" class="btn-dev-link seq" title="Seq Dağıtık İzleme ve Log Paneli">
+        <span>🔍 Seq Tracing (:5341)</span>
+      </a>
+      <a href="http://localhost:15672" target="_blank" class="btn-dev-link rabbit" title="RabbitMQ Yönetim Paneli">
+        <span>🐰 RabbitMQ (:15672)</span>
+      </a>
+    </div>
+  </header>
+
+  <main class="main-container">
+
+    <!-- Topology Status Radar -->
+    <section class="topology-section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <span>🏛️</span> Sistem Mimarisi & Canlı Topoloji Radarı
+        </h2>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">Her servise özel izole veri tabanı (Database-per-Service)</span>
+      </div>
+
+      <div class="topology-grid">
+        <div class="topo-card" id="topo-gateway">
+          <div class="topo-icon" style="background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan);">🌐</div>
+          <div class="topo-name">API Gateway</div>
+          <div class="topo-status">YARP :5000</div>
+        </div>
+        <div class="topo-card" id="topo-catalog">
+          <div class="topo-icon" style="background: rgba(99, 102, 241, 0.15); color: var(--accent-indigo);">📦</div>
+          <div class="topo-name">Catalog.API</div>
+          <div class="topo-status">Port :5001</div>
+        </div>
+        <div class="topo-card" id="topo-ordering">
+          <div class="topo-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald);">📝</div>
+          <div class="topo-name">Ordering.API</div>
+          <div class="topo-status">Port :5002</div>
+        </div>
+        <div class="topo-card" id="topo-payment">
+          <div class="topo-icon" style="background: rgba(245, 158, 11, 0.15); color: var(--accent-amber);">💳</div>
+          <div class="topo-name">Payment.API</div>
+          <div class="topo-status">SOAP / :5003</div>
+        </div>
+        <div class="topo-card" id="topo-notif">
+          <div class="topo-icon" style="background: rgba(244, 63, 94, 0.15); color: var(--accent-rose);">🔔</div>
+          <div class="topo-name">Notification</div>
+          <div class="topo-status">Worker</div>
+        </div>
+        <div class="topo-card" id="topo-postgres">
+          <div class="topo-icon" style="background: rgba(51, 103, 145, 0.15); color: #336791;">🐘</div>
+          <div class="topo-name">PostgreSQL 16</div>
+          <div class="topo-status">Multi-DB</div>
+        </div>
+        <div class="topo-card" id="topo-redis">
+          <div class="topo-icon" style="background: rgba(220, 56, 45, 0.15); color: #dc382d;">⚡</div>
+          <div class="topo-name">Redis 7</div>
+          <div class="topo-status">Cache-Aside</div>
+        </div>
+        <div class="topo-card" id="topo-rabbitmq">
+          <div class="topo-icon" style="background: rgba(255, 102, 0, 0.15); color: #ff6600;">📬</div>
+          <div class="topo-name">RabbitMQ</div>
+          <div class="topo-status">Event Bus</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Dashboard Grid -->
+    <div class="dashboard-grid">
+
+      <!-- Left Sidebar: Auth & Quick Checkout -->
+      <aside class="sidebar">
+
+        <!-- 1. JWT Kimlik Yönetimi -->
+        <div class="card">
+          <div class="card-title-bar">
+            <h3 class="card-title">
+              <span>🔐</span> JWT Kimlik & Roller
+            </h3>
+            <span id="auth-status-tag" class="auth-role-tag role-customer">Customer</span>
+          </div>
+
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            Tek tıkla kimlik değiştirip JWT token oluşturun:
+          </p>
+
+          <div class="persona-buttons">
+            <button class="btn-persona active" id="btn-login-customer" onclick="switchPersona('Customer')">
+              <span>👤 Müşteri Girişi</span>
+              <span class="persona-meta">customer@payflow.com</span>
+            </button>
+            <button class="btn-persona" id="btn-login-admin" onclick="switchPersona('Admin')">
+              <span>🛡️ Yönetici Girişi</span>
+              <span class="persona-meta">admin@payflow.com</span>
+            </button>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Aktif JWT Bearer Token:</label>
+            <div class="auth-token-box" id="jwt-token-display">Token yükleniyor...</div>
+          </div>
+        </div>
+
+        <!-- 2. Sipariş Oluşturucu (Checkout Simulator) -->
+        <div class="card">
+          <div class="card-title-bar">
+            <h3 class="card-title">
+              <span>🛒</span> Hızlı Sipariş Simülatörü
+            </h3>
+            <span style="font-size: 0.7rem; color: var(--accent-cyan);">CQRS + Outbox</span>
+          </div>
+
+          <form id="order-form" onsubmit="handleCreateOrder(event)">
+            <div class="form-group">
+              <label class="form-label">Müşteri E-Posta:</label>
+              <input type="email" id="order-email" class="form-input" value="customer@payflow.com" required readonly>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Seçilen Ürün:</label>
+              <select id="order-product-select" class="form-select" onchange="updateOrderTotal()">
+                <!-- JS ile dinamik dolacak -->
+              </select>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <div class="form-group">
+                <label class="form-label">Adet:</label>
+                <input type="number" id="order-quantity" class="form-input" value="1" min="1" max="10" onchange="updateOrderTotal()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Şehir:</label>
+                <input type="text" id="order-city" class="form-input" value="İstanbul">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Toplam Tutar:</label>
+              <div style="font-size: 1.25rem; font-weight: 800; color: var(--accent-emerald);" id="order-total-display">0.00 TRY</div>
+            </div>
+
+            <button type="submit" class="btn-primary" id="btn-submit-order">
+              <span>⚡ Siparişi Tamamla & Outbox'a Yaz</span>
+            </button>
+          </form>
+        </div>
+
+      </aside>
+
+      <!-- Main Content Area -->
+      <section class="content-area">
+
+        <!-- 1. Catalog & Redis Cache-Aside Laboratuvarı -->
+        <div class="card">
+          <div class="card-title-bar">
+            <h3 class="card-title">
+              <span>📦</span> Ürün Kataloğu & Redis Cache-Aside Laboratuvarı
+            </h3>
+            <div style="display: flex; gap: 0.5rem;">
+              <button class="btn-secondary" onclick="loadCatalogProducts()" title="Kataloğu yeniden çek ve gecikmeyi ölç">
+                🔄 Yenile
+              </button>
+              <button class="btn-secondary" style="border-color: rgba(244, 63, 94, 0.4); color: var(--accent-rose);" onclick="purgeRedisCache()" title="Redis önbelleğini temizle (Cache Miss simülasyonu)">
+                🗑️ Redis Önbelleğini Temizle
+              </button>
+            </div>
+          </div>
+
+          <!-- Cache Metrics Bar -->
+          <div class="cache-metrics-bar">
+            <div>
+              <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">Son İstek Kaynağı:</span>
+              <span id="cache-source-badge" class="cache-source-badge source-redis">
+                ⚡ Redis Cache (0.6 ms)
+              </span>
+            </div>
+            <div style="text-align: right;">
+              <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">Tepki Süresi (Latency):</span>
+              <span id="cache-latency-text" style="font-size: 0.9rem; font-weight: 700; color: var(--text-primary);">-- ms</span>
+            </div>
+          </div>
+
+          <div class="products-grid" id="products-grid">
+            <!-- JS ile dinamik basılacak -->
+          </div>
+        </div>
+
+        <!-- 2. Canlı Dağıtık Akış ve Sipariş Takipçisi -->
+        <div class="card">
+          <div class="card-title-bar">
+            <h3 class="card-title">
+              <span>📡</span> Canlı Dağıtık Olay Akışı & Sipariş Takipçisi
+            </h3>
+            <button class="btn-secondary" onclick="loadRecentOrders()">
+              🔄 Siparişleri Yenile
+            </button>
+          </div>
+
+          <!-- 5 Adımlı Görsel Dağıtık Pipeline -->
+          <div class="pipeline-container">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.75rem;">
+              Sipariş Yaşam Döngüsü & Event Flow:
+            </div>
+            <div class="pipeline-steps">
+              <div class="pipeline-step done" id="step-1">
+                <div class="step-num">1</div>
+                <div class="step-name">Order Created</div>
+                <div class="step-desc">PostgreSQL + Outbox DB</div>
+              </div>
+              <div class="pipeline-step done" id="step-2">
+                <div class="step-num">2</div>
+                <div class="step-name">Outbox Processor</div>
+                <div class="step-desc">RabbitMQ Event Bus</div>
+              </div>
+              <div class="pipeline-step active" id="step-3">
+                <div class="step-num">3</div>
+                <div class="step-name">Banka SOAP (WCF)</div>
+                <div class="step-desc">Polly Circuit Breaker</div>
+              </div>
+              <div class="pipeline-step done" id="step-4">
+                <div class="step-num">4</div>
+                <div class="step-name">Payment Approved</div>
+                <div class="step-desc">Idempotent DB Record</div>
+              </div>
+              <div class="pipeline-step done" id="step-5">
+                <div class="step-num">5</div>
+                <div class="step-name">Notification Sent</div>
+                <div class="step-desc">SMS / Email Worker</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Siparişler Tablosu -->
+          <div style="margin-top: 1.25rem; overflow-x: auto;">
+            <table class="orders-table">
+              <thead>
+                <tr>
+                  <th>Sipariş ID</th>
+                  <th>Müşteri</th>
+                  <th>Tutar</th>
+                  <th>Durum</th>
+                  <th>Banka Onay Kodu</th>
+                  <th>İşlem</th>
+                </tr>
+              </thead>
+              <tbody id="orders-table-body">
+                <!-- JS ile dinamik basılacak -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+    </div>
+
+  </main>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

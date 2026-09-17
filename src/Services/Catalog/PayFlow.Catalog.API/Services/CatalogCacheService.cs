@@ -1,6 +1,9 @@
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
 using PayFlow.Catalog.API.DTOs;
+using Polly;
+using Polly.Retry;
+using Polly.Timeout;
 
 namespace PayFlow.Catalog.API.Services;
 
@@ -8,6 +11,7 @@ public class CatalogCacheService : ICatalogCacheService
 {
     private readonly IDistributedCache _cache;
     private readonly ILogger<CatalogCacheService> _logger;
+    private readonly ResiliencePipeline _resiliencePipeline;
 
     private const string AllProductsKey = "catalog:products:all";
     private static string ProductKey(Guid id) => $"catalog:product:{id}";
@@ -22,20 +26,42 @@ public class CatalogCacheService : ICatalogCacheService
     {
         _cache = cache;
         _logger = logger;
+
+        // Polly v8 Resilience Pipeline: Redis erişimlerinde hızlı zaman aşımı ve kısa süreli retry
+        _resiliencePipeline = new ResiliencePipelineBuilder()
+            .AddTimeout(new TimeoutStrategyOptions
+            {
+                Timeout = TimeSpan.FromMilliseconds(800)
+            })
+            .AddRetry(new RetryStrategyOptions
+            {
+                MaxRetryAttempts = 2,
+                BackoffType = DelayBackoffType.Constant,
+                Delay = TimeSpan.FromMilliseconds(50),
+                OnRetry = args =>
+                {
+                    logger.LogWarning("Redis işleminde hata oluştu ({Attempt}. deneme): {Message}", args.AttemptNumber, args.Outcome.Exception?.Message);
+                    return ValueTask.CompletedTask;
+                }
+            })
+            .Build();
     }
 
     public async Task<IReadOnlyList<ProductDto>?> GetProductsAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var data = await _cache.GetStringAsync(AllProductsKey, cancellationToken);
-            if (string.IsNullOrEmpty(data)) return null;
+            return await _resiliencePipeline.ExecuteAsync(async ct =>
+            {
+                var data = await _cache.GetStringAsync(AllProductsKey, ct);
+                if (string.IsNullOrEmpty(data)) return null;
 
-            return JsonSerializer.Deserialize<List<ProductDto>>(data);
+                return JsonSerializer.Deserialize<List<ProductDto>>(data);
+            }, cancellationToken);
         }
         catch (Exception ex)
         {
-            // Senior Resilience Pattern: Redis erişilemezse uygulamanın çökmesini engelle (Graceful Degradation)
+            // Senior Resilience Pattern: Redis arızalansa bile sistem çökmez, veritabanına sorunsuz fallback yapar (Graceful Degradation)
             _logger.LogWarning(ex, "Redis cache read failed for key {Key}. Falling back to database.", AllProductsKey);
             return null;
         }
@@ -45,8 +71,11 @@ public class CatalogCacheService : ICatalogCacheService
     {
         try
         {
-            var serialized = JsonSerializer.Serialize(products);
-            await _cache.SetStringAsync(AllProductsKey, serialized, CacheOptions, cancellationToken);
+            await _resiliencePipeline.ExecuteAsync(async ct =>
+            {
+                var serialized = JsonSerializer.Serialize(products);
+                await _cache.SetStringAsync(AllProductsKey, serialized, CacheOptions, ct);
+            }, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -58,11 +87,14 @@ public class CatalogCacheService : ICatalogCacheService
     {
         try
         {
-            var key = ProductKey(id);
-            var data = await _cache.GetStringAsync(key, cancellationToken);
-            if (string.IsNullOrEmpty(data)) return null;
+            return await _resiliencePipeline.ExecuteAsync(async ct =>
+            {
+                var key = ProductKey(id);
+                var data = await _cache.GetStringAsync(key, ct);
+                if (string.IsNullOrEmpty(data)) return null;
 
-            return JsonSerializer.Deserialize<ProductDto>(data);
+                return JsonSerializer.Deserialize<ProductDto>(data);
+            }, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -75,9 +107,12 @@ public class CatalogCacheService : ICatalogCacheService
     {
         try
         {
-            var key = ProductKey(product.Id);
-            var serialized = JsonSerializer.Serialize(product);
-            await _cache.SetStringAsync(key, serialized, CacheOptions, cancellationToken);
+            await _resiliencePipeline.ExecuteAsync(async ct =>
+            {
+                var key = ProductKey(product.Id);
+                var serialized = JsonSerializer.Serialize(product);
+                await _cache.SetStringAsync(key, serialized, CacheOptions, ct);
+            }, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -89,11 +124,14 @@ public class CatalogCacheService : ICatalogCacheService
     {
         try
         {
-            await _cache.RemoveAsync(AllProductsKey, cancellationToken);
-            if (productId.HasValue)
+            await _resiliencePipeline.ExecuteAsync(async ct =>
             {
-                await _cache.RemoveAsync(ProductKey(productId.Value), cancellationToken);
-            }
+                await _cache.RemoveAsync(AllProductsKey, ct);
+                if (productId.HasValue)
+                {
+                    await _cache.RemoveAsync(ProductKey(productId.Value), ct);
+                }
+            }, cancellationToken);
         }
         catch (Exception ex)
         {

@@ -11,7 +11,7 @@ public static class OrderEndpoints
     {
         var group = app.MapGroup("/api/orders").WithTags("Orders");
 
-        // 1. Yeni sipariş oluştur (CQRS Command & Transactional Outbox)
+        // 1. Yeni sipariş oluştur (CQRS Command & Transactional Outbox & JWT Korumalı)
         group.MapPost("/", async (CreateOrderCommand command, ISender sender, CancellationToken ct) =>
         {
             var result = await sender.Send(command, ct);
@@ -27,8 +27,9 @@ public static class OrderEndpoints
 
             return Results.Created($"/api/orders/{result.Value}", new { OrderId = result.Value });
         })
+        .RequireAuthorization()
         .WithName("CreateOrder")
-        .WithSummary("Yeni sipariş oluşturur ve Outbox tablosu üzerinden RabbitMQ'ya event fırlatır.");
+        .WithSummary("Yeni sipariş oluşturur ve Outbox tablosu üzerinden RabbitMQ'ya event fırlatır (JWT Yetkisi gerektirir).");
 
         // 2. ID ile sipariş detayını getir (CQRS Query)
         group.MapGet("/{id:guid}", async (Guid id, ISender sender, CancellationToken ct) =>

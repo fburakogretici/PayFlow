@@ -1,7 +1,24 @@
-version: '3.8'
-
 services:
-  # 1. RabbitMQ Mesaj Kuyruğu (Management UI ile birlikte)
+  # 1. PostgreSQL 16 (Database-per-Service: payflow_catalog_db, payflow_ordering_db, payflow_payment_db)
+  postgres:
+    image: postgres:16-alpine
+    container_name: payflow-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Password123!
+    volumes:
+      - ./docker/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - payflow-network
+
+  # 2. RabbitMQ Mesaj Kuyruğu (Management UI ile birlikte)
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: payflow-rabbitmq
@@ -19,7 +36,7 @@ services:
     networks:
       - payflow-network
 
-  # 2. Redis Dağıtık Önbellek (Yüksek okuma trafiği için)
+  # 3. Redis Dağıtık Önbellek (Yüksek okuma trafiği için)
   redis:
     image: redis:7-alpine
     container_name: payflow-redis
@@ -33,7 +50,19 @@ services:
     networks:
       - payflow-network
 
-  # 3. Catalog Mikroservisi
+  # 4. Seq - Merkezi Loglama ve Dağıtık İzleme (Observability)
+  seq:
+    image: datalust/seq:latest
+    container_name: payflow-seq
+    ports:
+      - "5341:80"       # Seq Web Arayüzü & Log Ingest Portu
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINPASSWORD=Password123!
+    networks:
+      - payflow-network
+
+  # 5. Catalog Mikroservisi
   catalog-api:
     build:
       context: .
@@ -43,14 +72,20 @@ services:
       - "5001:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__CatalogDb=Host=postgres;Port=5432;Database=payflow_catalog_db;Username=postgres;Password=Password123!
       - ConnectionStrings__Redis=redis:6379
+      - Seq__ServerUrl=http://seq:80
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
+      seq:
+        condition: service_started
     networks:
       - payflow-network
 
-  # 4. Ordering Mikroservisi
+  # 6. Ordering Mikroservisi
   ordering-api:
     build:
       context: .
@@ -60,16 +95,22 @@ services:
       - "5002:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__OrderingDb=Host=postgres;Port=5432;Database=payflow_ordering_db;Username=postgres;Password=Password123!;Include Error Detail=true
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=guest
       - RabbitMQ__Password=guest
+      - Seq__ServerUrl=http://seq:80
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      seq:
+        condition: service_started
     networks:
       - payflow-network
 
-  # 5. Payment Mikroservisi (SOAP Entegrasyonlu)
+  # 7. Payment Mikroservisi (SOAP Entegrasyonlu & Polly Korumalı)
   payment-api:
     build:
       context: .
@@ -79,16 +120,22 @@ services:
       - "5003:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__PaymentDb=Host=postgres;Port=5432;Database=payflow_payment_db;Username=postgres;Password=Password123!
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=guest
       - RabbitMQ__Password=guest
+      - Seq__ServerUrl=http://seq:80
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      seq:
+        condition: service_started
     networks:
       - payflow-network
 
-  # 6. Notification Worker Servisi
+  # 8. Notification Worker Servisi
   notification-worker:
     build:
       context: .
@@ -99,13 +146,16 @@ services:
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=guest
       - RabbitMQ__Password=guest
+      - Seq__ServerUrl=http://seq:80
     depends_on:
       rabbitmq:
         condition: service_healthy
+      seq:
+        condition: service_started
     networks:
       - payflow-network
 
-  # 7. YARP API Gateway (Tek Giriş Kapısı)
+  # 9. YARP API Gateway (Tek Giriş Kapısı & JWT Validator)
   api-gateway:
     build:
       context: .
@@ -115,6 +165,7 @@ services:
       - "5000:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - Seq__ServerUrl=http://seq:80
       - ReverseProxy__Clusters__catalog-cluster__Destinations__destination1__Address=http://catalog-api:8080
       - ReverseProxy__Clusters__order-cluster__Destinations__destination1__Address=http://ordering-api:8080
       - ReverseProxy__Clusters__payment-cluster__Destinations__destination1__Address=http://payment-api:8080
@@ -122,6 +173,7 @@ services:
       - catalog-api
       - ordering-api
       - payment-api
+      - seq
     networks:
       - payflow-network
 

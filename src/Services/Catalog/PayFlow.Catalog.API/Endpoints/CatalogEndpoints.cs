@@ -113,5 +113,14 @@ public static class CatalogEndpoints
             return Results.Ok(dto);
         })
         .WithName("UpdateProduct");
+
+        // 6. Redis Önbelleğini Temizle (Test ve Demo için)
+        group.MapPost("/cache/purge", async (ICatalogCacheService cache, CancellationToken ct) =>
+        {
+            await cache.InvalidateCacheAsync(null, ct);
+            return Results.Ok(new { Message = "Catalog cache purged successfully." });
+        })
+        .WithName("PurgeCatalogCache")
+        .WithSummary("Redis önbelleğini temizler.");
     }
 }

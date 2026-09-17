@@ -4,19 +4,41 @@ using PayFlow.Payment.API.Consumers;
 using PayFlow.Payment.API.Data;
 using PayFlow.Payment.API.Endpoints;
 using PayFlow.Payment.API.Soap;
+using PayFlow.SharedKernel.Logging;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Veritabanı (EF Core)
-builder.Services.AddDbContext<PaymentDbContext>(options =>
+// 1. Serilog & Seq Yapılandırması (Observability)
+builder.Host.UseSerilog((context, configuration) =>
 {
-    options.UseSqlite(builder.Configuration.GetConnectionString("PaymentDb") ?? "Data Source=payment.db");
+    var seqUrl = context.Configuration["Seq:ServerUrl"] ?? "http://localhost:5341";
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .Enrich.FromLogContext()
+        .Enrich.WithProperty("Application", "PayFlow.Payment.API")
+        .WriteTo.Console()
+        .WriteTo.Seq(seqUrl);
 });
 
-// 2. SOAP Banka Entegrasyon Adaptörü
-builder.Services.AddScoped<IBankSoapAdapter, BankSoapAdapter>();
+// 2. EF Core Veritabanı (PostgreSQL / SQLite Fallback)
+builder.Services.AddDbContext<PaymentDbContext>(options =>
+{
+    var conn = builder.Configuration.GetConnectionString("PaymentDb");
+    if (!string.IsNullOrEmpty(conn) && (conn.Contains("Host=") || conn.Contains("Server=") || conn.Contains("Port=")))
+    {
+        options.UseNpgsql(conn);
+    }
+    else
+    {
+        options.UseSqlite(conn ?? "Data Source=payment.db");
+    }
+});
 
-// 3. MassTransit & RabbitMQ Konfigürasyonu
+// 3. SOAP Banka Adaptörü (Polly Resilience Pipeline ile Korunan)
+builder.Services.AddSingleton<IBankSoapAdapter, BankSoapAdapter>();
+
+// 4. MassTransit & RabbitMQ Konfigürasyonu
 builder.Services.AddMassTransit(x =>
 {
     x.AddConsumer<OrderCreatedConsumer>();
@@ -37,14 +59,25 @@ builder.Services.AddMassTransit(x =>
     });
 });
 
-// 4. Swagger & API Explorer
+// 5. Health Checks
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<PaymentDbContext>("PaymentDb");
+
+// 6. Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "PayFlow Payment API", Version = "v1", Description = "Event-Driven & SOAP Banka Entegrasyonlu Ödeme Mikroservisi" });
+    c.SwaggerDoc("v1", new()
+    {
+        Title = "PayFlow Payment API",
+        Version = "v1",
+        Description = "WCF/SOAP Banka Entegrasyonu, Idempotency Koruması ve Polly Circuit Breaker kullanan Ödeme Mikroservisi"
+    });
 });
 
 var app = builder.Build();
+
+app.UseCorrelationId();
 
 // Otomatik DB oluşturma
 using (var scope = app.Services.CreateScope())
@@ -60,6 +93,7 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = string.Empty;
 });
 
+app.MapHealthChecks("/health");
 app.MapPaymentEndpoints();
 
 app.Run();
