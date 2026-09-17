@@ -77,6 +77,11 @@ builder.Services.AddMassTransit(x =>
 // 6. Transactional Outbox Worker (Background Service)
 builder.Services.AddHostedService<OutboxProcessor>();
 
+// Outbox Strategy Pattern: Her event tipi için ayrı publisher kaydı
+// Yeni event tipi → sadece buraya yeni AddSingleton satırı ekle; OutboxProcessor'a dokunma
+builder.Services.AddSingleton<IOutboxMessagePublisher, OrderCreatedOutboxPublisher>();
+
+
 // 7. Health Checks
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<OrderDbContext>("OrderingDb");

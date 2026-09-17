@@ -2,9 +2,15 @@ using MediatR;
 using PayFlow.Ordering.API.Application.Orders.Commands.CreateOrder;
 using PayFlow.Ordering.API.Application.Orders.Queries.GetOrderById;
 using PayFlow.Ordering.API.Application.Orders.Queries.GetOrders;
+using PayFlow.SharedKernel.Results;
 
 namespace PayFlow.Ordering.API.Endpoints;
 
+/// <summary>
+/// Endpoint'ler yalnızca HTTP routing ve istek/yanıt dönüşümü yapar.
+/// Hata → HTTP mapping'i ToHttpResult() extension'ı aracılığıyla otomatik yapılır.
+/// (Single Responsibility Principle + DRY)
+/// </summary>
 public static class OrderEndpoints
 {
     public static void MapOrderEndpoints(this IEndpointRouteBuilder app)
@@ -15,15 +21,8 @@ public static class OrderEndpoints
         group.MapPost("/", async (CreateOrderCommand command, ISender sender, CancellationToken ct) =>
         {
             var result = await sender.Send(command, ct);
-
             if (result.IsFailure)
-            {
-                return Results.BadRequest(new
-                {
-                    result.Error.Code,
-                    result.Error.Message
-                });
-            }
+                return result.Error.ToHttpResult();
 
             return Results.Created($"/api/orders/{result.Value}", new { OrderId = result.Value });
         })
@@ -35,13 +34,7 @@ public static class OrderEndpoints
         group.MapGet("/{id:guid}", async (Guid id, ISender sender, CancellationToken ct) =>
         {
             var result = await sender.Send(new GetOrderByIdQuery(id), ct);
-
-            if (result.IsFailure)
-            {
-                return Results.NotFound(new { result.Error.Code, result.Error.Message });
-            }
-
-            return Results.Ok(result.Value);
+            return result.ToHttpResult();  // NotFound/BadRequest/OK otomatik
         })
         .WithName("GetOrderById")
         .WithSummary("Sipariş detayını ve durumunu getirir.");
@@ -50,7 +43,9 @@ public static class OrderEndpoints
         group.MapGet("/", async (Guid? customerId, ISender sender, CancellationToken ct) =>
         {
             var result = await sender.Send(new GetOrdersQuery(customerId), ct);
-            return Results.Ok(result.Value);
+            return result.IsSuccess
+                ? Results.Ok(result.Value)
+                : result.Error.ToHttpResult();
         })
         .WithName("GetOrders")
         .WithSummary("Siparişleri listeler.");
