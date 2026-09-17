@@ -1,11 +1,16 @@
-using System.Text.Json;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using PayFlow.Ordering.API.Infrastructure.Persistence;
-using PayFlow.SharedKernel.Events;
 
 namespace PayFlow.Ordering.API.Infrastructure.BackgroundServices;
 
+/// <summary>
+/// Transactional Outbox Pattern: Veri tabanında bekleyen mesajları RabbitMQ'ya iletir.
+///
+/// OCP Uyumu: if/else if zinciri yerine IOutboxMessagePublisher Strategy listesi kullanır.
+/// Yeni event tipi için sadece yeni bir IOutboxMessagePublisher implementasyonu DI'ya eklenir;
+/// bu sınıfa dokunulmaz.
+/// </summary>
 public class OutboxProcessor : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
@@ -32,7 +37,6 @@ public class OutboxProcessor : BackgroundService
                 _logger.LogError(ex, "Outbox mesajları işlenirken hata oluştu.");
             }
 
-            // Her 4 saniyede bir yeni mesaj kontrolü
             await Task.Delay(TimeSpan.FromSeconds(4), stoppingToken);
         }
     }
@@ -43,7 +47,12 @@ public class OutboxProcessor : BackgroundService
         var dbContext = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
         var publishEndpoint = scope.ServiceProvider.GetService<IPublishEndpoint>();
 
-        // Henüz RabbitMQ'ya iletilmemiş mesajları batch halinde (örn. 20 adet) al
+        // DI'dan tüm kayıtlı publisher stratejilerini al
+        // Yeni event tipi → sadece DI'ya yeni IOutboxMessagePublisher implementasyonu ekle
+        var publishers = scope.ServiceProvider
+            .GetServices<IOutboxMessagePublisher>()
+            .ToDictionary(p => p.MessageTypeName, StringComparer.OrdinalIgnoreCase);
+
         var messages = await dbContext.OutboxMessages
             .Where(m => m.ProcessedOnUtc == null)
             .OrderBy(m => m.OccurredOnUtc)
@@ -60,14 +69,16 @@ public class OutboxProcessor : BackgroundService
             {
                 if (publishEndpoint is not null)
                 {
-                    // Mesaj tipine göre deserialize et ve RabbitMQ'ya publish et
-                    if (message.Type.Contains(nameof(OrderCreatedIntegrationEvent)))
+                    // Strategy Dispatcher: Mesaj tipine göre doğru publisher'ı bul ve çalıştır
+                    var publisher = publishers.FirstOrDefault(kvp => message.Type.Contains(kvp.Key)).Value;
+
+                    if (publisher is not null)
                     {
-                        var @event = JsonSerializer.Deserialize<OrderCreatedIntegrationEvent>(message.Content);
-                        if (@event is not null)
-                        {
-                            await publishEndpoint.Publish(@event, cancellationToken);
-                        }
+                        await publisher.PublishAsync(message.Content, publishEndpoint, cancellationToken);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Outbox mesajı ({MessageId}) için kayıtlı publisher bulunamadı. Tip: {Type}", message.Id, message.Type);
                     }
                 }
 
