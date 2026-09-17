@@ -2,7 +2,24 @@ using System.Text.Json.Serialization;
 
 namespace PayFlow.SharedKernel.Events;
 
-public sealed record OrderItemDto(Guid ProductId, string ProductName, decimal UnitPrice, int Quantity);
+public sealed record OrderItemDto
+{
+    public Guid ProductId { get; init; }
+    public string ProductName { get; init; } = string.Empty;
+    public decimal UnitPrice { get; init; }
+    public int Quantity { get; init; }
+
+    [JsonConstructor]
+    public OrderItemDto() { }
+
+    public OrderItemDto(Guid productId, string productName, decimal unitPrice, int quantity)
+    {
+        ProductId = productId;
+        ProductName = productName;
+        UnitPrice = unitPrice;
+        Quantity = quantity;
+    }
+}
 
 public sealed record OrderCreatedIntegrationEvent : IntegrationEvent
 {
@@ -12,6 +29,8 @@ public sealed record OrderCreatedIntegrationEvent : IntegrationEvent
     public IReadOnlyList<OrderItemDto> Items { get; init; } = [];
 
     [JsonConstructor]
+    public OrderCreatedIntegrationEvent() : base() { }
+
     public OrderCreatedIntegrationEvent(
         Guid orderId,
         string customerEmail,
@@ -50,9 +69,11 @@ public sealed record PaymentCompletedIntegrationEvent : IntegrationEvent
     public Guid OrderId { get; init; }
     public string TransactionId { get; init; } = string.Empty;
     public decimal Amount { get; init; }
-    public DateTime PaidAtUtc { get; init; }
+    public DateTime PaidAtUtc { get; init; } = DateTime.UtcNow;
 
     [JsonConstructor]
+    public PaymentCompletedIntegrationEvent() : base() { }
+
     public PaymentCompletedIntegrationEvent(
         Guid orderId,
         string transactionId,
@@ -92,6 +113,8 @@ public sealed record PaymentFailedIntegrationEvent : IntegrationEvent
     public decimal Amount { get; init; }
 
     [JsonConstructor]
+    public PaymentFailedIntegrationEvent() : base() { }
+
     public PaymentFailedIntegrationEvent(
         Guid orderId,
         string reason,
