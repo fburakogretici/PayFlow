@@ -23,7 +23,12 @@ public class PaymentDbContext : DbContext
             builder.HasIndex(p => p.OrderId).IsUnique();
 
             builder.Property(p => p.Amount).HasPrecision(18, 2);
-            builder.Property(p => p.Status).HasMaxLength(50).IsRequired();
+
+            // PaymentStatus enum → DB'de integer olarak saklanır (performans + type-safety)
+            builder.Property(p => p.Status)
+                .HasConversion<string>()  // string olarak sakla, DB'den okuyunca otomatik enum'a çevir
+                .HasMaxLength(50)
+                .IsRequired();
             builder.Property(p => p.BankTransactionCode).HasMaxLength(100);
         });
     }
