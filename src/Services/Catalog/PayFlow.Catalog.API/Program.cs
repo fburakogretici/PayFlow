@@ -41,6 +41,8 @@ builder.Services.AddStackExchangeRedisCache(options =>
 });
 
 builder.Services.AddScoped<ICatalogCacheService, CatalogCacheService>();
+builder.Services.AddScoped<ICatalogService, CatalogService>();
+
 
 // 4. Health Checks
 builder.Services.AddHealthChecks()

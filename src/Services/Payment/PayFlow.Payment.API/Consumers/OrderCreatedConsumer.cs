@@ -38,27 +38,25 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedIntegrationEvent>
 
         if (existingPayment is not null)
         {
-            _logger.LogWarning("Sipariş ID {OrderId} için ödeme zaten işlenmiş (Idempotency koruması). Durum: {Status}", message.OrderId, existingPayment.Status);
+            _logger.LogWarning(
+                "Sipariş ID {OrderId} için ödeme zaten işlenmiş (Idempotency koruması). Durum: {Status}",
+                message.OrderId, existingPayment.Status);
             return;
         }
 
         // 2. SOAP Banka Entegrasyonu üzerinden ödeme işlemi
         var soapResponse = await _soapAdapter.PayAsync(message.OrderId.ToString(), message.TotalAmount, context.CancellationToken);
 
-        var paymentRecord = new PaymentRecord
-        {
-            OrderId = message.OrderId,
-            Amount = message.TotalAmount,
-            Status = soapResponse.IsApproved ? "Approved" : "Declined",
-            BankTransactionCode = soapResponse.BankTransactionCode,
-            FailureReason = soapResponse.IsApproved ? null : soapResponse.ResponseMessage
-        };
+        // 3. Rich Domain Model factory method — Magic String yok, domain mantığı encapsulate
+        var paymentRecord = soapResponse.IsApproved
+            ? PaymentRecord.CreateApproved(message.OrderId, message.TotalAmount, soapResponse.BankTransactionCode)
+            : PaymentRecord.CreateDeclined(message.OrderId, message.TotalAmount, soapResponse.ResponseMessage);
 
         _dbContext.PaymentRecords.Add(paymentRecord);
         await _dbContext.SaveChangesAsync(context.CancellationToken);
 
-        // 3. Ödeme sonucunu RabbitMQ üzerinden diğer mikroservislere (Ordering, Notification) yayınla
-        if (soapResponse.IsApproved)
+        // 4. Ödeme sonucunu RabbitMQ üzerinden diğer mikroservislere (Ordering, Notification) yayınla
+        if (paymentRecord.IsApproved)
         {
             _logger.LogInformation("Ödeme SOAP bankası tarafından ONAYLANDI. TXN: {TxnCode}", soapResponse.BankTransactionCode);
 

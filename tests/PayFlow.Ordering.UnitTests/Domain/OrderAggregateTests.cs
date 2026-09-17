@@ -16,8 +16,8 @@ public class OrderAggregateTests
         var email = "burak@example.com";
         var items = new List<OrderItem>
         {
-            new(Guid.NewGuid(), "Gaming Laptop", 25000m, 1),
-            new(Guid.NewGuid(), "Mouse", 500m, 2)
+            OrderItem.Create(Guid.NewGuid(), "Gaming Laptop", 25000m, 1).Value,
+            OrderItem.Create(Guid.NewGuid(), "Mouse", 500m, 2).Value
         };
 
         // Act
@@ -56,7 +56,7 @@ public class OrderAggregateTests
     public void Create_WithInvalidEmail_ShouldReturnFailureResult(string? invalidEmail)
     {
         // Arrange
-        var items = new List<OrderItem> { new(Guid.NewGuid(), "Book", 100m, 1) };
+        var items = new List<OrderItem> { OrderItem.Create(Guid.NewGuid(), "Book", 100m, 1).Value };
 
         // Act
         var result = Order.Create(Guid.NewGuid(), invalidEmail!, _validAddress, items);
@@ -70,7 +70,7 @@ public class OrderAggregateTests
     public void MarkAsPaid_WhenOrderIsPendingPayment_ShouldSucceedAndSetTransaction()
     {
         // Arrange
-        var items = new List<OrderItem> { new(Guid.NewGuid(), "Book", 100m, 1) };
+        var items = new List<OrderItem> { OrderItem.Create(Guid.NewGuid(), "Book", 100m, 1).Value };
         var order = Order.Create(Guid.NewGuid(), "test@domain.com", _validAddress, items).Value;
 
         // Act
@@ -87,7 +87,7 @@ public class OrderAggregateTests
     public void MarkAsPaid_WhenOrderIsAlreadyPaid_ShouldReturnConflictFailure()
     {
         // Arrange
-        var items = new List<OrderItem> { new(Guid.NewGuid(), "Book", 100m, 1) };
+        var items = new List<OrderItem> { OrderItem.Create(Guid.NewGuid(), "Book", 100m, 1).Value };
         var order = Order.Create(Guid.NewGuid(), "test@domain.com", _validAddress, items).Value;
         order.MarkAsPaid("TXN_1");
 
@@ -103,7 +103,7 @@ public class OrderAggregateTests
     public void Cancel_WhenOrderIsNotShipped_ShouldSucceed()
     {
         // Arrange
-        var items = new List<OrderItem> { new(Guid.NewGuid(), "Book", 100m, 1) };
+        var items = new List<OrderItem> { OrderItem.Create(Guid.NewGuid(), "Book", 100m, 1).Value };
         var order = Order.Create(Guid.NewGuid(), "test@domain.com", _validAddress, items).Value;
 
         // Act
