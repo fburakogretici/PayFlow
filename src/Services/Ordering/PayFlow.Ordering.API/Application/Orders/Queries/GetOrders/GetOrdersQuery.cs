@@ -42,7 +42,7 @@ public class GetOrdersQueryHandler : IQueryHandler<GetOrdersQuery, IReadOnlyList
                 o.CustomerId,
                 o.CustomerEmail,
                 o.Status.ToString(),
-                o.TotalAmount,
+                o.Items.Sum(i => i.UnitPrice * i.Quantity),
                 o.Items.Count,
                 o.CreatedAtUtc))
             .ToListAsync(cancellationToken);
